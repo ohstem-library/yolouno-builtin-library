@@ -4,6 +4,7 @@
 
 Motor4Drive::Motor4Drive(uint8_t address){
     _address = address;
+    _motor_type = DC_MOTOR;
 }
 
 Motor4Drive::Motor4Drive(uint8_t address, uint8_t motor_type = DC_MOTOR){
