@@ -9,8 +9,9 @@
 class Motor4Drive {
     private:
         uint8_t _address;
-        const uint8_t number_motor = 4;
+        uint8_t _number_motor = 4;
         uint8_t _motor_type;
+        uint8_t data_write[4];
     public:
         Motor4Drive(uint8_t address);
         Motor4Drive(uint8_t address, uint8_t motor_type = DC_MOTOR);
