@@ -1,9 +1,80 @@
 #include "esp32.h"
 #include "string.h"
+namespace Esp32 {
+    // On message callback table
+    typedef struct {
+        char * topic;
+        void (*func)();
+        char * payload;
+    }on_message_cb_t;
 
-namespace Esp32{
+    // AT response
+    typedef enum AtResponse{
+        AT_GENERIC_OK = 0,
+        AT_GENERIC_ERROR,
+        AT_GENERIC_INPUT,
+        // System Response
+        AT_SYSTEM_STARTUP,
+        // Wifi Response
+        AT_WIFI_CONNECTED,
+        AT_WIFI_DISCONNECTED,
+        AT_WIFI_GOT_IP,
+        AT_SMARTCONFIG_CONNECTED,
+        // Mqtt Reponse
+        AT_MQTT_CONNECTED,
+        AT_MQTT_DISCONNECTED,
+        AT_MQTT_ON_MESSAGE,
+        AT_MQTT_PUBLISH_OK,
+        AT_MQTT_PUBLISH_FAIL,
+        // Http Response
+        AT_HTTPCLIENT_RESPONSE, 
+        AT_MAX
+    };
+
+    static const uint16_t AT_TIMEOUT = 10000; // 500ms
+    static const uint16_t AT_BUFFER_MAX_SIZE = 128; // 128 bytes
+    static char AT_BUFFER[AT_BUFFER_MAX_SIZE] = {0};
+    static char AT_BUFFER_RESPONSE[AT_BUFFER_MAX_SIZE] = {0};
+
+    static const uint8_t AT_RESPONSE_SIZE = AT_MAX;
+
+    static const char * AT_RESPONSE_TABLE[AT_MAX] = {
+        [AT_GENERIC_OK] = "OK",
+        [AT_GENERIC_ERROR] = "ERROR",
+        [AT_GENERIC_INPUT] = ">",
+        // System Response
+        [AT_SYSTEM_STARTUP] = "ready",
+        // Wifi Reponse
+        [AT_WIFI_CONNECTED] = "WIFI CONNECTED",
+        [AT_WIFI_DISCONNECTED] = "WIFI DISCONNECT",
+        [AT_WIFI_GOT_IP] = "WIFI GOT IP",
+        [AT_SMARTCONFIG_CONNECTED] = "smartconfig connected wifi",
+        // Mqtt Response
+        [AT_MQTT_CONNECTED] = "+MQTTCONNECTED",
+        [AT_MQTT_DISCONNECTED] = "+MQTTDISCONNECTED",
+        [AT_MQTT_ON_MESSAGE] = "+MQTTSUBRECV",
+        [AT_MQTT_PUBLISH_OK] = "+MQTTPUB:OK",
+        [AT_MQTT_PUBLISH_FAIL] = "+MQTTPUB:FAIL",
+        // Http Response
+        [AT_HTTPCLIENT_RESPONSE] = "+HTTPCLIENT:",
+    };
+    static AtResponse persistent_response = AT_MAX;
+    static const size_t CALLBACK_MAX_LEN = 10;
+    static on_message_cb_t on_message_callback_table[CALLBACK_MAX_LEN] = {{0,0}};
+    static size_t callback_index = 0;
+
+    static AtResponse wait_response(SoftwareSerial * _serial, uint32_t timeout = AT_TIMEOUT);
+    static AtResponse wait_response_persistent(SoftwareSerial * _serial);
+    static bool wait_response(SoftwareSerial * _serial, AtResponse expected_response, uint32_t timeout = AT_TIMEOUT);
+    static void flush(SoftwareSerial * _serial, uint32_t timeout_ms);
+    // Callback handler
+    static void on_message_callback( char* topic,  char* payload);
+    static void (*on_disconnect_callback)();
+    // On mqtt message callback
+    static bool preprocess_on_message(SoftwareSerial *_serial, char *topic, char * payload);
+
     /* *****************************************Utils******************************************/
-    bool find(char *buffer , uint16_t buffer_len , const char * data){
+    static bool find(char *buffer , uint16_t buffer_len , const char * data){
         if(buffer == NULL || data == NULL){
             return false;
         }
@@ -23,7 +94,7 @@ namespace Esp32{
         return true;
     }
 
-    AtResponse wait_response(SoftwareSerial * _serial, uint32_t timeout){
+    static AtResponse wait_response(SoftwareSerial * _serial, uint32_t timeout){
         const unsigned long start_time = millis();
         size_t response_index = 0;
         // Loop for waiting response
@@ -59,7 +130,7 @@ namespace Esp32{
         return AT_GENERIC_ERROR;
     }
 
-    AtResponse wait_response_persistent(SoftwareSerial * _serial){
+    static AtResponse wait_response_persistent(SoftwareSerial * _serial){
         static size_t response_index = 0;
         // Loop for waiting response
         if(_serial->available() > 0){
@@ -86,7 +157,7 @@ namespace Esp32{
         return AT_MAX;
      }
 
-    bool wait_response(SoftwareSerial * _serial , AtResponse expected, uint32_t timeout){
+    static bool wait_response(SoftwareSerial * _serial , AtResponse expected, uint32_t timeout){
         const unsigned long start_time = millis();
         size_t response_index = 0;
         // Loop for waiting response
@@ -117,8 +188,8 @@ namespace Esp32{
         return false;
     }
 
-    void flush(SoftwareSerial * _serial, uint32_t timeout_ms){
-        uint16_t start_time = millis();
+    static void flush(SoftwareSerial * _serial, uint32_t timeout_ms){
+        uint32_t start_time = millis();
         while(millis() - start_time < timeout_ms){
             if(_serial->available()){
                 _serial->read();
@@ -142,15 +213,23 @@ namespace Esp32{
                 on_message_callback(topic,payload);
             }
             break;
+        case AT_GENERIC_ERROR:
+        case AT_SYSTEM_STARTUP:
+        case AT_MQTT_DISCONNECTED:
+#if defined(ESP32_DEBUG) && ESP32_DEBUG == 1
+            Serial.println("Need to restart");
+#endif
+            on_disconnect_callback();
+            break;
         default:
             break;
         }
     }
 
-    bool preprocess_on_message(SoftwareSerial *_serial, char *topic, char * payload){
+    static bool preprocess_on_message(SoftwareSerial *_serial, char *topic, char * payload){
         uint16_t topic_len = 0;
         uint16_t payload_len = 0;
-        uint16_t start_time = millis();
+        uint32_t start_time = millis();
         uint8_t split_character_cnt = 0;
         char split_character = ',';
         bool success = true;
@@ -188,10 +267,14 @@ namespace Esp32{
             topic[i] = topic[i+1];
         }
         topic[topic_len - 1] = '\0';
+#if defined(ESP32_DEBUG) && ESP32_DEBUG == 1
+        Serial.print(topic);
+        Serial.print(payload);
+#endif
         return success;
     }
 
-    void on_message_callback( char* topic, char* payload){
+    static void on_message_callback( char* topic, char* payload){
         for(int i=0; i < callback_index; i++){
             if(strstr(topic, on_message_callback_table[i].topic)){
                 on_message_callback_table[i].payload = payload;
@@ -221,7 +304,7 @@ namespace Esp32{
 #endif
         AtResponse response;
         // Atcommand
-        size_t len = snprintf(AT_BUFFER, AT_BUFFER_MAX_SIZE, "AT+RST\n");
+        size_t len = snprintf(AT_BUFFER, AT_BUFFER_MAX_SIZE, "AT+RST\r\n");
 
         // Send At command
         _serial->write(AT_BUFFER, len);
@@ -234,13 +317,45 @@ namespace Esp32{
         flush(_serial, 100);
         return true;
     }
-    bool Wifi::connect_to_ap(const char* ssid, const char* password){
+
+    bool Wifi::mode_sta(){
 #if defined(ESP32_DEBUG) && ESP32_DEBUG == 1
-        Serial.println("connect_to_ap");
+        Serial.println("run station mode");
 #endif
         AtResponse response;
         // Atcommand
-        size_t len = snprintf(AT_BUFFER, AT_BUFFER_MAX_SIZE, "AT+CWJAP=\"%s\",\"%s\"\n" , ssid, password);
+        size_t len = snprintf(AT_BUFFER, AT_BUFFER_MAX_SIZE, "AT+CWMODE=3,1\r\n");
+
+        // Send At command
+        _serial->write(AT_BUFFER, len);
+
+        // Wait for Wifi Connected
+        if(!wait_response(_serial, AT_GENERIC_OK)){
+            return false;
+        }
+
+        // Flash all pending data in 50 ms
+        flush(_serial, 50);
+
+        return true;
+    }
+
+    bool Wifi::set_disconnected_callback(void(*_on_disconnect_callback)()){
+        on_disconnect_callback = _on_disconnect_callback;
+    }
+
+
+    bool Wifi::connect_to_ap(const char* ssid, const char* password){
+#if defined(ESP32_DEBUG) && ESP32_DEBUG == 1
+        Serial.println("connect_to_ap");
+#endif  
+        if(!mode_sta()){
+            return false;
+        }
+
+        AtResponse response;
+        // Atcommand
+        size_t len = snprintf(AT_BUFFER, AT_BUFFER_MAX_SIZE, "AT+CWJAP=\"%s\",\"%s\"\r\n" , ssid, password);
 
         // Send At command
         _serial->write(AT_BUFFER, len);
@@ -297,7 +412,7 @@ namespace Esp32{
 #endif
         /****Client config***/ 
         // Atcommand
-        size_t len = snprintf(AT_BUFFER, AT_BUFFER_MAX_SIZE, "AT+MQTTUSERCFG=0,1,\"c-%u\",\"%s\",\"%s\",0,0,\"\"\n", (uint16_t)millis(), username, password);
+        size_t len = snprintf(AT_BUFFER, AT_BUFFER_MAX_SIZE, "AT+MQTTUSERCFG=0,1,\"c-%u\",\"%s\",\"%s\",0,0,\"\"\r\n", (uint16_t)millis(), username, password);
 #if defined(ESP32_DEBUG) && ESP32_DEBUG == 1
         Serial.print(AT_BUFFER);
 #endif
@@ -312,7 +427,7 @@ namespace Esp32{
         flush(_serial, 50);
 
         // Atcommand
-        len = snprintf(AT_BUFFER, AT_BUFFER_MAX_SIZE, "AT+MQTTCONN=0,\"%s\",%d,1\n" ,host, port);
+        len = snprintf(AT_BUFFER, AT_BUFFER_MAX_SIZE, "AT+MQTTCONN=0,\"%s\",%d,1\r\n" ,host, port);
 #if defined(ESP32_DEBUG) && ESP32_DEBUG == 1
         Serial.print(AT_BUFFER);
 #endif
@@ -333,7 +448,7 @@ namespace Esp32{
     bool Mqtt::subcribe_topic(char* topic, void (*func)(), int qos){
         AtResponse response;
 
-        size_t len = snprintf(AT_BUFFER, AT_BUFFER_MAX_SIZE, "AT+MQTTSUB=0,\"/%s/feeds/%s\",%d\n", _username, topic, qos);
+        size_t len = snprintf(AT_BUFFER, AT_BUFFER_MAX_SIZE, "AT+MQTTSUB=0,\"%s/feeds/%s\",%d\r\n", _username, topic, qos);
 #if defined(ESP32_DEBUG) && ESP32_DEBUG == 1
         Serial.print(AT_BUFFER);
 #endif
@@ -363,7 +478,7 @@ namespace Esp32{
     bool Mqtt::publish_message(const char* topic, const char* payload, int qos, int retain){
         AtResponse response;
 
-        size_t len = snprintf(AT_BUFFER, AT_BUFFER_MAX_SIZE, "AT+MQTTPUB=0,\"/feeds/%s/%s\",\"%s\",%d,%d\n" ,_username, topic, payload, qos, retain );
+        size_t len = snprintf(AT_BUFFER, AT_BUFFER_MAX_SIZE, "AT+MQTTPUB=0,\"%s/feeds/%s\",\"%s\",%d,%d\r\n" ,_username, topic, payload, qos, retain );
 #if defined(ESP32_DEBUG) && ESP32_DEBUG == 1
         Serial.print(AT_BUFFER);
 #endif
@@ -376,7 +491,7 @@ namespace Esp32{
         }
 
         // Flash all pending data in 50 ms
-        flush(_serial, 50);
+        // flush(_serial, 50);
 
         return true;
     }
@@ -411,7 +526,7 @@ namespace Esp32{
     bool Http::process_get_message(){
         data = "";
         uint16_t data_len = 0;
-        uint16_t start_time = millis();
+        uint32_t start_time = millis();
         bool start_record = false;
         char split_character = ',';
         uint16_t split_count = 0;
@@ -449,7 +564,7 @@ namespace Esp32{
         AtResponse response;
 
         size_t len = snprintf(AT_BUFFER, AT_BUFFER_MAX_SIZE, 
-                                    "AT+HTTPCLIENT=%d,%d,\"%s\",\"\",\"\",%d\n" ,reqType, conType, url, tranType);
+                                    "AT+HTTPCLIENT=%d,%d,\"%s\",\"\",\"\",%d\r\n" ,reqType, conType, url, tranType);
 #if defined(ESP32_DEBUG) && ESP32_DEBUG == 1
         Serial.print(AT_BUFFER);
 #endif
