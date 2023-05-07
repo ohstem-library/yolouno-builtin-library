@@ -2,7 +2,7 @@
 #include "SoftwareSerial.h"
 
 SoftwareSerial serial(6,5);
-Esp32::BluetoothServer server(&serial);
+BluetoothServer server(&serial);
 
 void rx_callback(){
     Serial.print("Rx data: ");
@@ -23,5 +23,6 @@ void setup(){
 
 void loop(){
     server.send_data("Hello world from Bluetooth Server");
+    server.event_loop();
     delay(2000);
 }
