@@ -12,6 +12,8 @@ void rx_callback(){
 void setup(){
     Serial.begin(115200);
     serial.begin(9600);
+    // Restart module
+    server.restart();
     // Init
     server.init("Esp32");
     // Start Uart Service
@@ -20,9 +22,12 @@ void setup(){
     server.set_on_receive_callback(rx_callback);
 }
 
+uint16_t time_to_send = millis();
 
 void loop(){
-    server.send_data("Hello world from Bluetooth Server");
+    if(millis() - time_to_send > 2000){
+      time_to_send = millis();
+      server.send_data("Hello world");
+    }
     server.event_loop();
-    delay(2000);
 }
