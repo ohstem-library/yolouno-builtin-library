@@ -1,18 +1,17 @@
-#include "Motor4Drive.h"
-
-Motor4Drive motor_driver(0x30, DC_MOTOR);
-
+#include "MotorDriver.h"
 uint8_t speed = 0;
+
+DCMotor motor;
 
 void setup(){
   // Set all motor stop
-  motor_driver.set_motors(0);
+  
 }
 
 
 void loop(){
   // Set all motor stop
-  motor_driver.set_motor(0, speed);
+  motor.setSpeed(0, FORWARD,  speed);
   speed = (speed + 10) % 100;
   delay(5000);
 }
