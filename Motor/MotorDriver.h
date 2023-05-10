@@ -55,8 +55,8 @@ class StepperMotor {
         StepperMotor(uint8_t address, uint16_t number_step = 200);
         ~StepperMotor();
         bool setSpeed(int motor_index, MotorDirection_t dir, uint16_t speed, StepperStyle_t style = INTERLEAVE);
-        bool step(int motor_index, MotorDirection_t dir, uint16_t step, StepperStyle_t style = SINGLE);
-        bool onestep(int motor_index, MotorDirection_t dir, StepperStyle_t style = SINGLE);
+        bool step(int motor_index, MotorDirection_t dir, uint16_t step, StepperStyle_t style = DOUBLE);
+        bool onestep(int motor_index, MotorDirection_t dir, StepperStyle_t style = DOUBLE);
         bool release(uint8_t motor_index);
 };
 
