@@ -30,7 +30,7 @@ void setup(){
     Serial.println("Connected to Wifi");
   }
   // Connect Mqtt Client
-  if(mqtt.connect_mqtt_broker("35.240.158.2", 8883 ,"eboost-k2", "ZbHzPb5W")){
+  if(mqtt.connect_mqtt_broker("mqtt.ohstem.vn", 1883 ,"eboost-k2", "123456")){
     Serial.println("Mqtt Connected\r\n");
   }
   delay(2000);
