@@ -44,6 +44,9 @@ namespace Esp32 {
                                         char* lw_payload = "");
             bool subcribe_topic(char* topic, void (*func)(), int qos = 1);
             bool publish_message(const char* topic, const char* payload, int qos = 1, int retain = 0);
+            bool publish_message(const char* topic, String payload, int qos = 1, int retain = 0);
+            bool publish_message(const char* topic, int payload, int qos = 1, int retain = 0);
+            bool publish_message(const char* topic, float payload, int qos = 1, int retain = 0);
             bool is_connected();
             char* getMessageFrom(const char * topic);
     };

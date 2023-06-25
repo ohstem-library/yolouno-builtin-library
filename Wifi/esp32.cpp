@@ -496,6 +496,21 @@ namespace Esp32 {
         return true;
     }
 
+    bool Mqtt::publish_message(const char* topic, String payload, int qos = 1, int retain = 0){
+        const char * payload_p = payload.c_str();
+        return publish_message(topic, payload_p, qos, retain);
+    }
+
+    bool Mqtt::publish_message(const char* topic, float data, int qos = 1, int retain = 0){
+        String payload = String(data);
+        return publish_message(topic, payload, qos, retain);
+    }
+
+    bool Mqtt::publish_message(const char* topic, int data, int qos = 1, int retain = 0){
+        String payload = String(data);
+        return publish_message(topic, payload, qos, retain);
+    }
+
     bool Mqtt::is_connected(){
 
     }
